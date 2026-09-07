@@ -1,0 +1,303 @@
+-- ============================================================================
+-- BO Teluk Betung (RMFT) — Skema untuk SUPABASE SELF-HOSTED (Coolify / VPS)
+--
+-- Cara pakai:
+--   Buka Supabase Studio -> SQL Editor -> paste seluruh file ini -> Run.
+--   Atau: psql "postgresql://postgres:PASSWORD@HOST:5432/postgres" -f supabase-schema.sql
+--
+-- File ini aman dijalankan berulang kali (idempotent).
+--
+-- Yang dibuat:
+--   * enum app_role + tabel user_roles (terhubung ke auth.users) + fungsi has_role
+--   * semua tabel data (DI321, DI319, DEPO, MTD/YTD GIRO & TAB, EDC, QRIS, dll.)
+--   * activity_logs, links, settings, calendar_events
+--   * fungsi run_compare(_kind) untuk halaman Compare Data
+--   * GRANT Data API (PostgREST) + Row Level Security untuk semua tabel
+--   * akun admin awal: admin@app.local / admin123  (SEGERA GANTI PASSWORDNYA)
+-- ============================================================================
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ------------------------------------------------------------------ roles ---
+DO $$ BEGIN
+  CREATE TYPE public.app_role AS ENUM ('admin','viewer');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS public.user_roles (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  role       public.app_role NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, role)
+);
+
+GRANT SELECT ON public.user_roles TO authenticated;
+GRANT ALL ON public.user_roles TO service_role;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+CREATE OR REPLACE FUNCTION public.has_role(_user_id uuid, _role public.app_role)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = _user_id AND role = _role)
+$$;
+
+GRANT EXECUTE ON FUNCTION public.has_role(uuid, public.app_role) TO authenticated, service_role;
+
+DO $$ BEGIN
+  CREATE POLICY "user_roles_select_self" ON public.user_roles
+    FOR SELECT TO authenticated USING (user_id = auth.uid());
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "user_roles_select_admin" ON public.user_roles
+    FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ------------------------------------------------------------- data tables --
+-- Semua kolom data mentah bertipe text (mengikuti aplikasi: nilai diformat di UI).
+DO $$
+DECLARE
+  cols_giro text := 'periode text, kode_kanwil text, kanwil text, kode_kanca text, kanca text, kode_uker text, uker text, curr text, currdesc text, cifno text, account_number text, product_code text, status text, short_name text, open_date text, balance text, avail_balance text, limit_amount text, cr_int text, dr_int text, commitment text, avrg_balance text, pn_pengelola_single_pn text, pn_customer_service text, pn_rm_dana text, pn_rm_pinjaman text, pn_rm_merchant text, pn_relationship_officer text, pn_sales_person text, pn_pab text, pn_rm_referral text';
+  cols_delta text := 'norek text, nama_nasabah text, tgl1 text, tgl2 text, rm_pengelola text';
+  cols_depo text := 'periode text, kode_uker text, cur_code text, cur_desc text, type text, acctno text, fdr_srl_no text, principal_amount text, short_name text, withdrawable_int text, issue_dt text, mat_dt text, int_rate text, int_tenor_disp text, renew text, remark text, pn_customer_service text, pn_rm_dana text, pn_rm_pinjaman text, pn_rm_merchant text, pn_relationship_officer text, pn_sales_person text, pn_pab text, pn_rm_referral text, jumlah_pn text, cbal_base text';
+  cols_di319 text := 'periode text, uker_code text, curr_code text, curr_desc text, account_number text, ciff_no text, short_name text, open_dt text, balance text, in_balance text, accrued_int text, average_balance text, prod_code text, pn_pengelola_singlepn text, pn_customer_service text, pn_rm_dana_mantri text, pn_rm_pinjaman text, pn_rm_merchant text, pn_relationship_officer_rm_kredit_menengah text, pn_sales_person text, pn_pab text, pn_rm_referral text, jumlah_pn_pemasar text, balance_dalam_idr text';
+  grp record;
+BEGIN
+  FOR grp IN
+    SELECT unnest(ARRAY['data_di321_data1','data_di321_data2','data_di321_data3','data_mtd_giro','data_mtd_tab','data_ytd_giro','data_ytd_tab']) AS name, cols_giro AS cols
+    UNION ALL
+    SELECT unnest(ARRAY['data_mtd_giro_kenaikan','data_mtd_giro_penurunan','data_mtd_tab_kenaikan','data_mtd_tab_penurunan','data_ytd_giro_kenaikan','data_ytd_giro_penurunan','data_ytd_tab_kenaikan','data_ytd_tab_penurunan']), cols_delta
+    UNION ALL
+    SELECT unnest(ARRAY['data_depo','data_depo_data1','data_depo_data2','data_depo_data3']), cols_depo
+    UNION ALL
+    SELECT unnest(ARRAY['data_di319_data1','data_di319_data2','data_di319_data3']), cols_di319
+  LOOP
+    EXECUTE format('CREATE TABLE IF NOT EXISTS public.%I (id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, %s)', grp.name, grp.cols);
+  END LOOP;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.data_edc (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  tahun text, periode text, posisi text, kode_kanwil text, nama_kanwil text, kode_kanca text, nama_kanca text, kode_uker text, nama_uker text, tid text, mid text, nama_merchant text, jenis text, kanwil_pemrakarsa text, kanwil_nama_pemrakarsa text, uker_pemrakarsa text, uker_nama_pemrakarsa text, kanwil_implementor text, kanwil_nama_implementor text, uker_implementor text, uker_nama_implementor text, pn_user_pemrakarsa text, nama_user_pemrakarsa text, last_available text, status_available text, last_utility text, status_utility text, last_transactional text, status_transactional text, alamat_merchant text, kelurahan text, kecamatan text, kabupaten text, provinsi text, aktif_or_staging text, jml_transaksi text, sales_volume text, akumulasi_transaksi text, akumulasi_sales_volume text, kartu_jml_transaksi_on_us text, kartu_jml_transaksi_off_us text, jml_transaksi_qris text, kartu_sales_volume_on_us text, kartu_sales_volume_off_us text, sales_volume_qris text, ket_mcc text, kode_mcc text, norek text, cifno text, saldo_posisi text, ratas_saldo text, saldo_posisi_by_cif text, ratas_saldo_by_cif text, tgl_approval text, nilai text, source text, sales_volume_mid text, flagging text, flagging_bri_merchant text, tiering_sales_volume text, status_edc text
+);
+
+CREATE TABLE IF NOT EXISTS public.data_qris (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  periode text, posisi text, region text, rgdesc text, mainbr text, mbdesc text, branch text, x text, brdesc text, merchant_pan text, storeid text, nama_merchant text, kriteria text, jenis_usaha text, kode_mcc text, mcc text, alamat text, kode_pos text, kota text, provinsi text, no_rek text, cif text, pn text, pn_pemrakasa text, jabatan text, tgl_balikan_pten text, status text, merchant_type text, akumulasi_sv_onus text, akumulasi_sv_offus text, akumulasi_sv_linkaja text, akumulasi_sv_total text, posisi_sv_total text, akumulasi_trx_onus text, akumulasi_trx_offus text, akumulasi_trx_linkaja text, akumulasi_trx_total text, posisi_trx_total text, saldo_posisi text, ratas_saldo text, flagging_bri_merchant text, status_qris text
+);
+
+CREATE TABLE IF NOT EXISTS public.data_pic_jalan (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  no_urut text, unit_kerja text, nama_rmft text, nama_jalan text, nama_toko text, usaha text, rek_bri text, edc_bri text, qris_bri text, rek_lain text, edc_lain text, qris_lain text, telpon text, owner text, keterangan text, follow_up_terakhir text
+);
+
+CREATE TABLE IF NOT EXISTS public.data_pivot_multi (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  seq text, no_rek text, nama text, valuta text, jenis_rekening text, tanggal_transaksi text, jam_transaksi text, kode_transaksi text, desk_transaksi text, saldo_awal_mutasi text, mutasi_debet text, mutasi_kredit text, saldo_akhir_mutasi text, truser text, glsign text, auxtrc text, uker_tran text, uker_desc_tran text
+);
+
+CREATE TABLE IF NOT EXISTS public.data_produktivitas_rmft (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  rm text, dpk text, tgl1 text, tgl2 text, tgl3 text
+);
+
+CREATE TABLE IF NOT EXISTS public.activity_logs (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  username text NOT NULL,
+  action text NOT NULL,
+  description text NOT NULL DEFAULT ''::text,
+  ip_address text NOT NULL DEFAULT ''::text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.links (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  nama text NOT NULL,
+  url text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.settings (
+  id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  key text NOT NULL UNIQUE,
+  value text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.calendar_events (
+  id bigserial PRIMARY KEY,
+  tanggal date NOT NULL,
+  judul text NOT NULL,
+  warna text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------- indexes ---
+CREATE INDEX IF NOT EXISTS idx_data_qris_periode ON public.data_qris (periode);
+CREATE INDEX IF NOT EXISTS idx_data_edc_periode ON public.data_edc (periode);
+CREATE INDEX IF NOT EXISTS idx_di319_1_periode ON public.data_di319_data1 (periode);
+CREATE INDEX IF NOT EXISTS idx_di319_2_periode ON public.data_di319_data2 (periode);
+CREATE INDEX IF NOT EXISTS idx_di319_3_periode ON public.data_di319_data3 (periode);
+CREATE INDEX IF NOT EXISTS idx_di321_1_acct ON public.data_di321_data1 (account_number);
+CREATE INDEX IF NOT EXISTS idx_di321_2_acct ON public.data_di321_data2 (account_number);
+CREATE INDEX IF NOT EXISTS idx_di321_3_acct ON public.data_di321_data3 (account_number);
+CREATE INDEX IF NOT EXISTS idx_di319_1_acct ON public.data_di319_data1 (account_number);
+CREATE INDEX IF NOT EXISTS idx_di319_2_acct ON public.data_di319_data2 (account_number);
+CREATE INDEX IF NOT EXISTS idx_di319_3_acct ON public.data_di319_data3 (account_number);
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created ON public.activity_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_tanggal ON public.calendar_events (tanggal);
+
+-- ------------------------------------------------- grants + RLS policies ----
+-- Pola izin:
+--   * semua pengguna yang login (authenticated) boleh MEMBACA seluruh tabel data
+--   * hanya admin yang boleh menambah / mengubah / menghapus
+--   * activity_logs: semua pengguna login boleh menambah catatan aktivitas
+DO $$
+DECLARE t text;
+BEGIN
+  FOR t IN
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public'
+      AND (tablename LIKE 'data\_%' OR tablename IN ('links','settings','calendar_events','activity_logs'))
+  LOOP
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', t);
+    EXECUTE format('GRANT ALL ON public.%I TO service_role', t);
+    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_select_auth', t);
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT TO authenticated USING (true)', t || '_select_auth', t);
+
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_insert_admin', t);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_update_admin', t);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_delete_admin', t);
+
+    IF t = 'activity_logs' THEN
+      -- setiap pengguna login boleh menulis log aktivitasnya
+      EXECUTE format('CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK (true)', t || '_insert_admin', t);
+    ELSE
+      EXECUTE format('CREATE POLICY %I ON public.%I FOR INSERT TO authenticated WITH CHECK (public.has_role(auth.uid(), ''admin''))', t || '_insert_admin', t);
+    END IF;
+
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated USING (public.has_role(auth.uid(), ''admin'')) WITH CHECK (public.has_role(auth.uid(), ''admin''))', t || '_update_admin', t);
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR DELETE TO authenticated USING (public.has_role(auth.uid(), ''admin''))', t || '_delete_admin', t);
+  END LOOP;
+END $$;
+
+-- Sequence untuk kolom id (dibutuhkan PostgREST saat INSERT)
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
+
+-- --------------------------------------------------------- run_compare() ----
+CREATE OR REPLACE FUNCTION public.run_compare(_kind text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  src_table text; base_table text; bal_col text; rm_col text;
+  up_table text; down_table text; sql text; n_up int; n_down int;
+BEGIN
+  IF auth.uid() IS NULL OR NOT public.has_role(auth.uid(), 'admin') THEN
+    RAISE EXCEPTION 'Forbidden: hanya admin yang dapat menjalankan compare data.';
+  END IF;
+
+  IF _kind = 'mtd_giro' THEN
+    src_table := 'data_di321_data2'; base_table := 'data_di321_data3';
+    bal_col := 'balance'; rm_col := 'pn_rm_dana';
+    up_table := 'data_mtd_giro_kenaikan'; down_table := 'data_mtd_giro_penurunan';
+  ELSIF _kind = 'ytd_giro' THEN
+    src_table := 'data_di321_data1'; base_table := 'data_di321_data3';
+    bal_col := 'balance'; rm_col := 'pn_rm_dana';
+    up_table := 'data_ytd_giro_kenaikan'; down_table := 'data_ytd_giro_penurunan';
+  ELSIF _kind = 'mtd_tab' THEN
+    src_table := 'data_di319_data2'; base_table := 'data_di319_data3';
+    bal_col := 'balance'; rm_col := 'pn_rm_dana_mantri';
+    up_table := 'data_mtd_tab_kenaikan'; down_table := 'data_mtd_tab_penurunan';
+  ELSIF _kind = 'ytd_tab' THEN
+    src_table := 'data_di319_data1'; base_table := 'data_di319_data3';
+    bal_col := 'balance'; rm_col := 'pn_rm_dana_mantri';
+    up_table := 'data_ytd_tab_kenaikan'; down_table := 'data_ytd_tab_penurunan';
+  ELSE
+    RAISE EXCEPTION 'unknown compare kind %', _kind;
+  END IF;
+
+  EXECUTE format('DELETE FROM public.%I', up_table);
+  EXECUTE format('DELETE FROM public.%I', down_table);
+
+  sql := format(
+    'WITH j AS (SELECT b.account_number AS norek, COALESCE(b.short_name, s.short_name) AS nama,'
+    ' COALESCE(NULLIF(regexp_replace(s.%1$I, ''[^0-9.-]'', '''', ''g''), '''')::numeric, 0) AS v1,'
+    ' COALESCE(NULLIF(regexp_replace(b.%1$I, ''[^0-9.-]'', '''', ''g''), '''')::numeric, 0) AS v2,'
+    ' COALESCE(b.%2$I, s.%2$I) AS rm'
+    ' FROM public.%3$I b JOIN public.%4$I s ON s.account_number = b.account_number)'
+    ' INSERT INTO public.%5$I (norek, nama_nasabah, tgl1, tgl2, rm_pengelola)'
+    ' SELECT norek, nama, v1::text, v2::text, rm FROM j WHERE v2 > v1',
+    bal_col, rm_col, base_table, src_table, up_table);
+  EXECUTE sql;
+  GET DIAGNOSTICS n_up = ROW_COUNT;
+
+  sql := format(
+    'WITH j AS (SELECT b.account_number AS norek, COALESCE(b.short_name, s.short_name) AS nama,'
+    ' COALESCE(NULLIF(regexp_replace(s.%1$I, ''[^0-9.-]'', '''', ''g''), '''')::numeric, 0) AS v1,'
+    ' COALESCE(NULLIF(regexp_replace(b.%1$I, ''[^0-9.-]'', '''', ''g''), '''')::numeric, 0) AS v2,'
+    ' COALESCE(b.%2$I, s.%2$I) AS rm'
+    ' FROM public.%3$I b JOIN public.%4$I s ON s.account_number = b.account_number)'
+    ' INSERT INTO public.%5$I (norek, nama_nasabah, tgl1, tgl2, rm_pengelola)'
+    ' SELECT norek, nama, v1::text, v2::text, rm FROM j WHERE v2 < v1',
+    bal_col, rm_col, base_table, src_table, down_table);
+  EXECUTE sql;
+  GET DIAGNOSTICS n_down = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true, 'kenaikan', n_up, 'penurunan', n_down);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.run_compare(text) TO authenticated, service_role;
+
+-- ------------------------------------------------------------------- seed ---
+-- Contoh agenda kalender (hanya jika tabel masih kosong)
+INSERT INTO public.calendar_events (tanggal, judul, warna)
+SELECT * FROM (VALUES
+  ('2026-08-03'::date, 'HBD CI YULI', 'amber'),
+  ('2026-08-04'::date, 'YAMAHA BAHANA', 'green'),
+  ('2026-08-04'::date, 'SHANKARA', 'pink'),
+  ('2026-08-06'::date, 'PELINDO', 'blue')
+) v WHERE NOT EXISTS (SELECT 1 FROM public.calendar_events);
+
+-- Akun admin awal (login di aplikasi: username "admin", password "admin123").
+-- Aplikasi memetakan username -> email <username>@app.local.
+DO $$
+DECLARE uid uuid;
+BEGIN
+  SELECT id INTO uid FROM auth.users WHERE email = 'admin@app.local';
+
+  IF uid IS NULL THEN
+    uid := gen_random_uuid();
+    INSERT INTO auth.users (
+      instance_id, id, aud, role, email, encrypted_password,
+      email_confirmed_at, created_at, updated_at,
+      raw_app_meta_data, raw_user_meta_data
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated',
+      'admin@app.local', crypt('admin123', gen_salt('bf')),
+      now(), now(), now(),
+      '{"provider":"email","providers":["email"]}'::jsonb,
+      '{"nama":"Administrator"}'::jsonb
+    );
+
+    INSERT INTO auth.identities (
+      id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+    ) VALUES (
+      gen_random_uuid(), uid, uid::text,
+      jsonb_build_object('sub', uid::text, 'email', 'admin@app.local', 'email_verified', true),
+      'email', now(), now(), now()
+    );
+  END IF;
+
+  INSERT INTO public.user_roles (user_id, role)
+  VALUES (uid, 'admin') ON CONFLICT DO NOTHING;
+END $$;
+
+-- ============================================================================
+-- Selesai. Setelah ini, isi di aplikasi: SUPABASE_URL, publishable key, dan
+-- service role key dari instance Supabase self-hosted Anda.
+-- ============================================================================
