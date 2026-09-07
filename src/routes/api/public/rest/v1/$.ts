@@ -164,7 +164,15 @@ async function handleRpc(ctx: Ctx, fn: string, body: Record<string, unknown>, is
 
 async function handle(request: Request, splat: string): Promise<Response> {
   const proxy = await import("@/lib/api/supabase-proxy.server");
-  if (proxy.supabaseBaseUrl()) return proxy.proxyToSupabase(request, "rest/v1", splat);
+  if (!proxy.supabaseBaseUrl()) {
+    throw new Error(
+      "SB_URL belum terbaca oleh aplikasi. Tambahkan SB_URL pada Environment Variables Coolify lalu redeploy.",
+    );
+  }
+  return proxy.proxyToSupabase(request, "rest/v1", splat);
+
+  /* Legacy PostgreSQL adapter retained below for source compatibility, but it
+     is intentionally unreachable in the Supabase self-hosted deployment. */
   const auth = await import("@/lib/api/auth-core.server");
   const db = await import("@/lib/api/db.server");
   const claims = await auth.requireUser(request);
@@ -227,7 +235,11 @@ async function handle(request: Request, splat: string): Promise<Response> {
 
   if (request.method === "POST") {
     const payload = (await request.json().catch(() => null)) as unknown;
-    const list = (Array.isArray(payload) ? payload : [payload]).filter(Boolean) as Record<string, unknown>[];
+    const candidates: unknown[] = Array.isArray(payload) ? (payload as unknown[]) : [payload];
+    const list = candidates.filter(
+      (item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null && !Array.isArray(item),
+    );
     if (!list.length) return pgError("Body kosong.");
 
     const keys = Array.from(new Set(list.flatMap((r) => Object.keys(r)))).filter((k) => columns.has(k));
