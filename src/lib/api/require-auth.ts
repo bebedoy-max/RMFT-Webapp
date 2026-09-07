@@ -42,8 +42,14 @@ function bearer(): string {
 
 export const requireAuth = createMiddleware({ type: "function" }).server(async ({ next }) => {
   const token = bearer();
+  const SUPABASE_URL = process.env["SB_URL"] ?? process.env["SUPABASE_URL"];
+  const SUPABASE_PUBLISHABLE_KEY =
+    process.env["SB_PUBLISHABLE_KEY"] ?? process.env["SUPABASE_PUBLISHABLE_KEY"];
 
-  if (process.env["SELF_HOST"] === "true") {
+  // SELF_HOST is the deployment target, not the authentication provider.
+  // Prefer Supabase whenever its URL is configured; direct PostgreSQL auth is
+  // retained only for legacy installs that have no Supabase configuration.
+  if (process.env["SELF_HOST"] === "true" && !SUPABASE_URL) {
     const { verifyAccessToken } = await import("./auth-core.server");
     const claims = await verifyAccessToken(token).catch(() => {
       throw new Error("Unauthorized: token tidak valid");
@@ -58,9 +64,6 @@ export const requireAuth = createMiddleware({ type: "function" }).server(async (
     return next({ context });
   }
 
-  const SUPABASE_URL = process.env["SB_URL"] ?? process.env["SUPABASE_URL"];
-  const SUPABASE_PUBLISHABLE_KEY =
-    process.env["SB_PUBLISHABLE_KEY"] ?? process.env["SUPABASE_PUBLISHABLE_KEY"];
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) throw new Error("Konfigurasi backend belum lengkap.");
 
   const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {

@@ -13,7 +13,8 @@
 --   * activity_logs, links, settings, calendar_events
 --   * fungsi run_compare(_kind) untuk halaman Compare Data
 --   * GRANT Data API (PostgREST) + Row Level Security untuk semua tabel
---   * akun admin awal: admin@app.local / admin123  (SEGERA GANTI PASSWORDNYA)
+-- Akun aplikasi harus dibuat melalui Supabase Studio / Auth Admin API. Jangan
+-- INSERT langsung ke auth.users karena skema internal berbeda antar versi.
 -- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -263,39 +264,10 @@ SELECT * FROM (VALUES
   ('2026-08-06'::date, 'PELINDO', 'blue')
 ) v WHERE NOT EXISTS (SELECT 1 FROM public.calendar_events);
 
--- Akun admin awal (login di aplikasi: username "admin", password "admin123").
--- Aplikasi memetakan username -> email <username>@app.local.
-DO $$
-DECLARE uid uuid;
-BEGIN
-  SELECT id INTO uid FROM auth.users WHERE email = 'admin@app.local';
-
-  IF uid IS NULL THEN
-    uid := gen_random_uuid();
-    INSERT INTO auth.users (
-      instance_id, id, aud, role, email, encrypted_password,
-      email_confirmed_at, created_at, updated_at,
-      raw_app_meta_data, raw_user_meta_data
-    ) VALUES (
-      '00000000-0000-0000-0000-000000000000', uid, 'authenticated', 'authenticated',
-      'admin@app.local', crypt('admin123', gen_salt('bf')),
-      now(), now(), now(),
-      '{"provider":"email","providers":["email"]}'::jsonb,
-      '{"nama":"Administrator"}'::jsonb
-    );
-
-    INSERT INTO auth.identities (
-      id, user_id, provider_id, identity_data, provider, last_sign_in_at, created_at, updated_at
-    ) VALUES (
-      gen_random_uuid(), uid, uid::text,
-      jsonb_build_object('sub', uid::text, 'email', 'admin@app.local', 'email_verified', true),
-      'email', now(), now(), now()
-    );
-  END IF;
-
-  INSERT INTO public.user_roles (user_id, role)
-  VALUES (uid, 'admin') ON CONFLICT DO NOTHING;
-END $$;
+-- Setelah skema selesai:
+-- 1. Supabase Studio > Authentication > Users > Add user.
+-- 2. Buat admin@app.local dan aktifkan Auto Confirm User.
+-- 3. Jalankan deploy/promote-admin.sql untuk memberi peran admin.
 
 -- ============================================================================
 -- Selesai. Setelah ini, isi di aplikasi: SUPABASE_URL, publishable key, dan

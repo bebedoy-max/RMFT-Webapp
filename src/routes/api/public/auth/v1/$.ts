@@ -11,6 +11,8 @@ const fail = (message: string, status = 400) =>
   json({ error: status === 401 ? "invalid_grant" : "bad_request", message, msg: message }, status);
 
 async function handle(request: Request, splat: string): Promise<Response> {
+  const proxy = await import("@/lib/api/supabase-proxy.server");
+  if (proxy.supabaseBaseUrl()) return proxy.proxyToSupabase(request, "auth/v1", splat);
   const auth = await import("@/lib/api/auth-core.server");
   const { query } = await import("@/lib/api/db.server");
   const url = new URL(request.url);

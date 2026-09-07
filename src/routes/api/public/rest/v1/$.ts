@@ -163,6 +163,8 @@ async function handleRpc(ctx: Ctx, fn: string, body: Record<string, unknown>, is
 }
 
 async function handle(request: Request, splat: string): Promise<Response> {
+  const proxy = await import("@/lib/api/supabase-proxy.server");
+  if (proxy.supabaseBaseUrl()) return proxy.proxyToSupabase(request, "rest/v1", splat);
   const auth = await import("@/lib/api/auth-core.server");
   const db = await import("@/lib/api/db.server");
   const claims = await auth.requireUser(request);

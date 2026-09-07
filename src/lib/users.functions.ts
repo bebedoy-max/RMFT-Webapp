@@ -11,7 +11,11 @@ export type AppUserRow = {
   active: boolean;
 };
 
-const selfHost = () => process.env["SELF_HOST"] === "true";
+// Direct PostgreSQL user management is only for the legacy deployment. A
+// self-hosted Supabase instance must use the Auth Admin API instead.
+const selfHost = () =>
+  process.env["SELF_HOST"] === "true" &&
+  !(process.env["SB_URL"] ?? process.env["SUPABASE_URL"]);
 
 export const listAppUsers = createServerFn({ method: "GET" })
   .middleware([requireAuth])
