@@ -11,21 +11,10 @@ export type AppUserRow = {
   active: boolean;
 };
 
-// Direct PostgreSQL user management is only for the legacy deployment. A
-// self-hosted Supabase instance must use the Auth Admin API instead.
-const selfHost = () =>
-  process.env["SELF_HOST"] === "true" &&
-  !(process.env["SB_URL"] ?? process.env["SUPABASE_URL"]);
-
 export const listAppUsers = createServerFn({ method: "GET" })
   .middleware([requireAuth])
   .handler(async ({ context }): Promise<AppUserRow[]> => {
     assertAdmin(context);
-
-    if (selfHost()) {
-      const { listUsersPg } = await import("@/lib/api/users-pg.server");
-      return listUsersPg();
-    }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
@@ -65,11 +54,6 @@ export const createAppUser = createServerFn({ method: "POST" })
       throw new Error("Username wajib diisi dan password minimal 6 karakter.");
     }
 
-    if (selfHost()) {
-      const { createUserPg } = await import("@/lib/api/users-pg.server");
-      return createUserPg(data);
-    }
-
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email: toEmail(data.username),
@@ -100,11 +84,6 @@ export const updateAppUser = createServerFn({ method: "POST" })
     assertAdmin(context);
     if (data.password && data.password.length < 6) throw new Error("Password minimal 6 karakter.");
 
-    if (selfHost()) {
-      const { updateUserPg } = await import("@/lib/api/users-pg.server");
-      return updateUserPg(data);
-    }
-
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const attrs: Record<string, unknown> = {};
     if (data.nama !== undefined) attrs["user_metadata"] = { nama: data.nama };
@@ -130,11 +109,6 @@ export const deleteAppUser = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     assertAdmin(context);
     if (data.id === context.userId) throw new Error("Tidak bisa menghapus akun sendiri.");
-
-    if (selfHost()) {
-      const { deleteUserPg } = await import("@/lib/api/users-pg.server");
-      return deleteUserPg(data.id);
-    }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     await supabaseAdmin.from("user_roles").delete().eq("user_id", data.id);

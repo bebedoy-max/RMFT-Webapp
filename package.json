@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "build:node": "BUILD_TARGET=node vite build",
-    "build:node:low": "BUILD_TARGET=node NODE_OPTIONS=\"--max-old-space-size=1024\" vite build --logLevel warn",
+    "build:node": "rm -rf build-node && BUILD_TARGET=node vite build",
+    "build:node:low": "rm -rf build-node && BUILD_TARGET=node NODE_OPTIONS=\"--max-old-space-size=1024\" vite build --logLevel warn",
     "start": "node app.js"
   },
   "dependencies": {
