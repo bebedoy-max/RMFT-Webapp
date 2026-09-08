@@ -1,5 +1,5 @@
 // Entry point untuk cPanel "Setup Node.js App" (Application startup file: app.js).
-// Menjalankan hasil build Nitro node-server (.output/server/index.mjs).
+// Menjalankan hasil build Nitro node-server (build-node/server/index.mjs).
 //
 // cPanel akan menyetel PORT sendiri. Semua variabel lain dibaca dari .env.
 import { readFileSync, existsSync } from "node:fs";
@@ -30,16 +30,14 @@ if (existsSync(envPath)) {
 
 process.env.NODE_ENV = process.env.NODE_ENV || "production";
 
-// Cari hasil build: build-node/ (baru, terlihat di File Manager) atau .output/ (lama).
-const candidates = [
-  join(root, "build-node", "server", "index.mjs"),
-  join(root, ".output", "server", "index.mjs"),
-];
-const entry = candidates.find((f) => existsSync(f));
-if (!entry) {
+// Hanya izinkan hasil build terbaru. Fallback ke .output sengaja tidak dipakai:
+// pada deployment persisten folder itu dapat berisi server lama dan membuat
+// redeploy terlihat berhasil padahal proses masih menjalankan kode sebelumnya.
+const entry = join(root, "build-node", "server", "index.mjs");
+if (!existsSync(entry)) {
   console.error(
     "Build tidak ditemukan di build-node/server/index.mjs.\n" +
-      "Jalankan `npm run build:node` lalu upload folder build-node/ ke server.",
+      "Jalankan `npm run build:node` sebelum `npm run start`.",
   );
   process.exit(1);
 }

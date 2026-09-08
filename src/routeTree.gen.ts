@@ -17,6 +17,7 @@ import { Route as LogsRouteImport } from './routes/logs'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as UsersRouteImport } from './routes/users'
 import { Route as DataSlugRouteImport } from './routes/data.$slug'
+import { Route as ApiPublicDiagRouteImport } from './routes/api/public/diag'
 import { Route as ApiPublicAuthV1SplatRouteImport } from './routes/api/public/auth/v1/$'
 import { Route as ApiPublicRestV1SplatRouteImport } from './routes/api/public/rest/v1/$'
 
@@ -60,6 +61,11 @@ const DataSlugRoute = DataSlugRouteImport.update({
   path: '/data/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicDiagRoute = ApiPublicDiagRouteImport.update({
+  id: '/api/public/diag',
+  path: '/api/public/diag',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicAuthV1SplatRoute = ApiPublicAuthV1SplatRouteImport.update({
   id: '/api/public/auth/v1/$',
   path: '/api/public/auth/v1/$',
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/users': typeof UsersRoute
   '/data/$slug': typeof DataSlugRoute
+  '/api/public/diag': typeof ApiPublicDiagRoute
   '/api/public/auth/v1/$': typeof ApiPublicAuthV1SplatRoute
   '/api/public/rest/v1/$': typeof ApiPublicRestV1SplatRoute
 }
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/users': typeof UsersRoute
   '/data/$slug': typeof DataSlugRoute
+  '/api/public/diag': typeof ApiPublicDiagRoute
   '/api/public/auth/v1/$': typeof ApiPublicAuthV1SplatRoute
   '/api/public/rest/v1/$': typeof ApiPublicRestV1SplatRoute
 }
@@ -105,6 +113,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/users': typeof UsersRoute
   '/data/$slug': typeof DataSlugRoute
+  '/api/public/diag': typeof ApiPublicDiagRoute
   '/api/public/auth/v1/$': typeof ApiPublicAuthV1SplatRoute
   '/api/public/rest/v1/$': typeof ApiPublicRestV1SplatRoute
 }
@@ -119,6 +128,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/users'
     | '/data/$slug'
+    | '/api/public/diag'
     | '/api/public/auth/v1/$'
     | '/api/public/rest/v1/$'
   fileRoutesByTo: FileRoutesByTo
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/users'
     | '/data/$slug'
+    | '/api/public/diag'
     | '/api/public/auth/v1/$'
     | '/api/public/rest/v1/$'
   id:
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/users'
     | '/data/$slug'
+    | '/api/public/diag'
     | '/api/public/auth/v1/$'
     | '/api/public/rest/v1/$'
   fileRoutesById: FileRoutesById
@@ -156,6 +168,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   UsersRoute: typeof UsersRoute
   DataSlugRoute: typeof DataSlugRoute
+  ApiPublicDiagRoute: typeof ApiPublicDiagRoute
   ApiPublicAuthV1SplatRoute: typeof ApiPublicAuthV1SplatRoute
   ApiPublicRestV1SplatRoute: typeof ApiPublicRestV1SplatRoute
 }
@@ -218,6 +231,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DataSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/diag': {
+      id: '/api/public/diag'
+      path: '/api/public/diag'
+      fullPath: '/api/public/diag'
+      preLoaderRoute: typeof ApiPublicDiagRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/auth/v1/$': {
       id: '/api/public/auth/v1/$'
       path: '/api/public/auth/v1/$'
@@ -244,6 +264,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   UsersRoute: UsersRoute,
   DataSlugRoute: DataSlugRoute,
+  ApiPublicDiagRoute: ApiPublicDiagRoute,
   ApiPublicAuthV1SplatRoute: ApiPublicAuthV1SplatRoute,
   ApiPublicRestV1SplatRoute: ApiPublicRestV1SplatRoute,
 }

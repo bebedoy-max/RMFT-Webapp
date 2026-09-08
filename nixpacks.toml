@@ -1,0 +1,8 @@
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["rm -rf build-node .output dist .tanstack .nitro", "npm run build:node"]
+
+[start]
+cmd = "npm run start"
