@@ -18,6 +18,10 @@ function anonKey(): string {
   );
 }
 
+function isOpaqueApiKey(value: string): boolean {
+  return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
+}
+
 /** Teruskan request ke Supabase. `prefix` contoh: "auth/v1" atau "rest/v1". */
 export async function proxyToSupabase(
   request: Request,
@@ -40,8 +44,13 @@ export async function proxyToSupabase(
     // Never forward the browser's portable placeholder to Kong/GoTrue.
     headers.set("apikey", key);
     const authorization = headers.get("authorization");
-    if (!authorization || authorization === "Bearer self-hosted") {
+    if (
+      (!authorization || authorization === "Bearer self-hosted") &&
+      !isOpaqueApiKey(key)
+    ) {
       headers.set("authorization", `Bearer ${key}`);
+    } else if (authorization === `Bearer ${key}` && isOpaqueApiKey(key)) {
+      headers.delete("authorization");
     }
   }
 
@@ -52,7 +61,7 @@ export async function proxyToSupabase(
     method,
     headers,
     ...(body ? { body } : {}),
-    redirect: "manual",
+    redirect: "follow",
   });
 
   const outHeaders = new Headers(upstream.headers);
